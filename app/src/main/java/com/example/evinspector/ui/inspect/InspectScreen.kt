@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -54,6 +56,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -71,6 +74,8 @@ import com.example.evinspector.ui.theme.StatusStyle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+
+private val BigButtonHeight = 56.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -144,8 +149,8 @@ fun InspectScreen(
                     Button(
                         onClick = { vm.saveAndReturn(onDone) },
                         enabled = ui.loaded && ui.canSave,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Save & Return") }
+                        modifier = Modifier.fillMaxWidth().height(BigButtonHeight),
+                    ) { Text("Save & Return", style = MaterialTheme.typography.titleMedium) }
                 }
             }
         },
@@ -160,13 +165,23 @@ fun InspectScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                item(key = "mark_all_pass") {
+                    MarkAllPassButton(enabled = ui.hasUnanswered, onClick = vm::markAllPass)
+                }
                 items(Component.entries, key = { it.name }) { component ->
                     ComponentCard(
                         component = component,
                         input = ui.inputs[component] ?: ComponentInput(),
                         photos = ui.photos[component].orEmpty(),
                         photoFile = vm::photoFile,
-                        onResult = { vm.setResult(component, it) },
+                        onResult = { picked ->
+                            // Misc is optional: tapping the selected button again clears it.
+                            if (!component.required && ui.inputs[component]?.result == picked) {
+                                vm.clearResult(component)
+                            } else {
+                                vm.setResult(component, picked)
+                            }
+                        },
                         onNote = { vm.setNote(component, it) },
                         onTakePhoto = { takePhoto(component) },
                         onRemovePhoto = vm::removePhoto,
@@ -181,9 +196,28 @@ private fun blockerText(problems: List<ValidationProblem>): String {
     val unanswered = problems.count { it.kind == ValidationProblem.Kind.UNANSWERED }
     val missing = problems.count { it.kind == ValidationProblem.Kind.MISSING_NOTE }
     return buildList {
-        if (unanswered > 0) add("$unanswered of ${Component.entries.size} components not answered")
-        if (missing > 0) add("$missing failure(s) need a description")
+        if (unanswered > 0) add("$unanswered of ${Component.core.size} components not answered")
+        if (missing > 0) add("$missing item(s) need a description, comment or photo")
     }.joinToString("  •  ")
+}
+
+@Composable
+private fun MarkAllPassButton(enabled: Boolean, onClick: () -> Unit) {
+    val green = StatusStyle.container(ChargerStatus.CLEAR)
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        OutlinedButton(
+            onClick = onClick,
+            enabled = enabled,
+            border = BorderStroke(2.dp, if (enabled) green else MaterialTheme.colorScheme.outlineVariant),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = green),
+            modifier = Modifier.fillMaxWidth().height(BigButtonHeight),
+        ) { Text("Mark all as pass", style = MaterialTheme.typography.titleMedium) }
+        Text(
+            "Fills in any component you haven't answered yet. Failures and notes are kept.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 @Composable
@@ -197,23 +231,35 @@ private fun ComponentCard(
     onTakePhoto: () -> Unit,
     onRemovePhoto: (PhotoEntity) -> Unit,
 ) {
+    // Misc has no Pass button: leaving it blank means there is nothing to report.
+    val options = if (component.required) {
+        listOf(CheckResult.PASS, CheckResult.NOTE, CheckResult.FAIL)
+    } else {
+        listOf(CheckResult.NOTE, CheckResult.FAIL)
+    }
+    val isNote = input.result == CheckResult.NOTE
+
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    component.label,
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                PassFailToggle(input.result, onResult)
+            Column {
+                Text(component.label, style = MaterialTheme.typography.titleLarge)
+                if (!component.required) {
+                    Text(
+                        "Optional: anything not covered above. Leave blank if there is nothing to report.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
 
-            if (input.result == CheckResult.FAIL) {
+            ResultButtons(options = options, selected = input.result, onPick = onResult)
+
+            if (InspectionRules.carriesDetail(input.result)) {
                 OutlinedTextField(
                     value = input.note,
                     onValueChange = { if (it.length <= InspectionRules.MAX_NOTE_LENGTH) onNote(it) },
-                    label = { Text("Describe the damage (required)") },
-                    isError = input.note.isBlank(),
+                    label = { Text(if (isNote) "Comment (or add a photo)" else "Describe the damage (required)") },
+                    isError = input.note.isBlank() && (!isNote || photos.isEmpty()),
                     supportingText = { Text("${input.note.length}/${InspectionRules.MAX_NOTE_LENGTH}") },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth(),
@@ -227,8 +273,14 @@ private fun ComponentCard(
                     }
                 }
                 if (photos.size < InspectionRules.MAX_PHOTOS_PER_COMPONENT) {
-                    OutlinedButton(onClick = onTakePhoto) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    val accent = StatusStyle.forResult(input.result ?: CheckResult.NOTE)
+                    OutlinedButton(
+                        onClick = onTakePhoto,
+                        border = BorderStroke(2.dp, accent),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = accent),
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(20.dp))
                         Text("  Add photo (${photos.size}/${InspectionRules.MAX_PHOTOS_PER_COMPONENT})")
                     }
                 }
@@ -237,29 +289,37 @@ private fun ComponentCard(
     }
 }
 
+/** Large, colour-coded choice buttons: green Pass, blue Note, red Fail. The chosen one is solid. */
 @Composable
-private fun PassFailToggle(value: CheckResult?, onChange: (CheckResult) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ToggleChoice("Pass", value == CheckResult.PASS, StatusStyle.container(ChargerStatus.CLEAR)) {
-            onChange(CheckResult.PASS)
+private fun ResultButtons(
+    options: List<CheckResult>,
+    selected: CheckResult?,
+    onPick: (CheckResult) -> Unit,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        options.forEach { option ->
+            val color = StatusStyle.forResult(option)
+            val label = StatusStyle.resultLabel(option)
+            val buttonModifier = Modifier.weight(1f).height(BigButtonHeight)
+            if (option == selected) {
+                Button(
+                    onClick = { onPick(option) },
+                    colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Color.White),
+                    modifier = buttonModifier,
+                ) {
+                    Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                OutlinedButton(
+                    onClick = { onPick(option) },
+                    border = BorderStroke(2.dp, color),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = color),
+                    modifier = buttonModifier,
+                ) {
+                    Text(label, style = MaterialTheme.typography.titleMedium)
+                }
+            }
         }
-        ToggleChoice("Fail", value == CheckResult.FAIL, StatusStyle.container(ChargerStatus.ISSUES)) {
-            onChange(CheckResult.FAIL)
-        }
-    }
-}
-
-@Composable
-private fun ToggleChoice(label: String, selected: Boolean, color: Color, onClick: () -> Unit) {
-    val padding = PaddingValues(horizontal = 16.dp)
-    if (selected) {
-        Button(
-            onClick = onClick,
-            colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Color.White),
-            contentPadding = padding,
-        ) { Text(label) }
-    } else {
-        OutlinedButton(onClick = onClick, contentPadding = padding) { Text(label) }
     }
 }
 
@@ -270,14 +330,14 @@ private fun PhotoThumbnail(file: File, onRemove: () -> Unit) {
     }
     Box(
         modifier = Modifier
-            .size(64.dp)
+            .size(72.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant),
     ) {
         bitmap?.let {
             Image(
                 bitmap = it,
-                contentDescription = "Damage photo",
+                contentDescription = "Photo",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -286,10 +346,10 @@ private fun PhotoThumbnail(file: File, onRemove: () -> Unit) {
             onClick = onRemove,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .size(26.dp)
+                .size(30.dp)
                 .background(Color(0x99000000), CircleShape),
         ) {
-            Icon(Icons.Default.Close, contentDescription = "Remove photo", tint = Color.White, modifier = Modifier.size(14.dp))
+            Icon(Icons.Default.Close, contentDescription = "Remove photo", tint = Color.White, modifier = Modifier.size(16.dp))
         }
     }
 }

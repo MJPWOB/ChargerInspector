@@ -14,8 +14,8 @@ android {
         applicationId = "com.example.evinspector"
         minSdk = 29 // Android 10: scoped storage + java.time available without desugaring
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     buildTypes {

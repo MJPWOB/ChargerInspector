@@ -5,8 +5,10 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
 /**
- * Long-format CSV: exactly one row per charger per component, so it loads straight into a
- * maintenance database. Chargers that were never inspected still appear, with NOT_CHECKED.
+ * Long-format CSV: exactly one row per charger per component (the seven named parts plus Misc),
+ * so it loads straight into a maintenance database. Chargers that were never inspected still
+ * appear, with NOT_CHECKED (Misc shows N/A when nothing was reported). `result` is PASS, NOTE,
+ * FAIL, NOT_CHECKED or N/A.
  */
 object CsvExporter {
     val HEADER = listOf(
@@ -29,7 +31,10 @@ object CsvExporter {
         for (charger in report.chargers) {
             val inspectedAt = charger.inspectedAtMillis?.let { iso(it, report) } ?: ""
             for (finding in charger.findings) {
-                val failed = finding.result == CheckResult.FAIL
+                val detailed = InspectionRules.carriesDetail(finding.result)
+                // An unanswered optional item (Misc) is "N/A"; an unanswered named one is "NOT_CHECKED".
+                val resultText = finding.result?.name
+                    ?: if (finding.component.required) "NOT_CHECKED" else "N/A"
                 sb.append(
                     row(
                         listOf(
@@ -39,9 +44,9 @@ object CsvExporter {
                             charger.status.name,
                             inspectedAt,
                             finding.component.label,
-                            finding.result?.name ?: "NOT_CHECKED",
-                            if (failed) finding.note.trim() else "",
-                            if (failed) finding.photoPaths.size.toString() else "",
+                            resultText,
+                            if (detailed) finding.note.trim() else "",
+                            if (detailed) finding.photoPaths.size.toString() else "",
                         ),
                     ),
                 )

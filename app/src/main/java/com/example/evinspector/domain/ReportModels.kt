@@ -4,7 +4,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-/** One component's recorded outcome inside a report. Photo paths are absolute and only set for FAILs. */
+/** One component's recorded outcome inside a report. Photo paths are absolute and only set for FAIL and NOTE. */
 data class ComponentFinding(
     val component: Component,
     val result: CheckResult?,
@@ -21,6 +21,9 @@ data class ChargerReport(
 ) {
     val failedFindings: List<ComponentFinding>
         get() = findings.filter { it.result == CheckResult.FAIL }
+
+    val notedFindings: List<ComponentFinding>
+        get() = findings.filter { it.result == CheckResult.NOTE }
 }
 
 /** Everything a report generator needs; contains no Android types so it can be unit tested. */
@@ -37,10 +40,12 @@ data class ReportSummary(
     val total: Int,
     val inspected: Int,
     val clear: Int,
+    val noted: Int,
     val issues: Int,
     val partial: Int,
     val unchecked: Int,
     val failedComponents: Int,
+    val notedComponents: Int,
 ) {
     val percentInspected: Int
         get() = if (total == 0) 0 else (inspected * 100) / total
@@ -48,15 +53,18 @@ data class ReportSummary(
 
 fun SessionReport.summary(): ReportSummary {
     val clear = chargers.count { it.status == ChargerStatus.CLEAR }
+    val noted = chargers.count { it.status == ChargerStatus.NOTED }
     val issues = chargers.count { it.status == ChargerStatus.ISSUES }
     return ReportSummary(
         total = chargers.size,
-        inspected = clear + issues,
+        inspected = clear + noted + issues,
         clear = clear,
+        noted = noted,
         issues = issues,
         partial = chargers.count { it.status == ChargerStatus.PARTIAL },
         unchecked = chargers.count { it.status == ChargerStatus.UNCHECKED },
         failedComponents = chargers.sumOf { it.failedFindings.size },
+        notedComponents = chargers.sumOf { it.notedFindings.size },
     )
 }
 

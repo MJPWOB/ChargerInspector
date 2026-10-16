@@ -11,18 +11,19 @@ class DashboardTest {
         statuses.mapIndexed { i, s -> ChargerTile(i + 1, "CH0${i + 1}", s) }
 
     @Test
-    fun `inspected counts only saved chargers`() {
+    fun `inspected counts saved chargers including blue ones`() {
         val data = DashboardData(
             "x",
             tiles(
                 ChargerStatus.CLEAR,
+                ChargerStatus.NOTED,
                 ChargerStatus.ISSUES,
                 ChargerStatus.PARTIAL,
                 ChargerStatus.UNCHECKED,
             ),
         )
-        assertEquals(4, data.total)
-        assertEquals(2, data.inspected)
+        assertEquals(5, data.total)
+        assertEquals(3, data.inspected)
     }
 
     @Test
@@ -42,7 +43,7 @@ class DashboardTest {
 
     @Test
     fun `no export warning when everything is inspected`() {
-        val w = ExportWarning.from(tiles(ChargerStatus.CLEAR, ChargerStatus.ISSUES))
+        val w = ExportWarning.from(tiles(ChargerStatus.CLEAR, ChargerStatus.NOTED, ChargerStatus.ISSUES))
         assertFalse(w.hasWarning)
     }
 }

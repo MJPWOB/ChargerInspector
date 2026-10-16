@@ -11,13 +11,14 @@ class CsvExporterTest {
     private val utc = ZoneId.of("UTC")
     private val inspectedAt = Instant.parse("2026-10-16T09:12:03Z").toEpochMilli()
 
+    /** All named components get [default]; Misc stays unanswered, as it does in a real report. */
     private fun findings(
         vararg overrides: Pair<Component, ComponentFinding>,
         default: CheckResult? = CheckResult.PASS,
     ): List<ComponentFinding> {
         val map = overrides.toMap()
         return Component.entries.map { c ->
-            map[c] ?: ComponentFinding(c, default, "", emptyList())
+            map[c] ?: ComponentFinding(c, if (c.required) default else null, "", emptyList())
         }
     }
 
@@ -47,7 +48,8 @@ class CsvExporterTest {
             ChargerReport(it, "CH0$it", ChargerStatus.CLEAR, inspectedAt, findings())
         }
         val csv = CsvExporter.build(report(chargers))
-        assertEquals(1 + 3 * Component.entries.size, lines(csv).size)
+        assertEquals(8, Component.entries.size) // seven named components plus Misc
+        assertEquals(1 + 3 * 8, lines(csv).size)
     }
 
     @Test
@@ -65,6 +67,14 @@ class CsvExporterTest {
     }
 
     @Test
+    fun `unanswered misc exports as N-A`() {
+        val csv = CsvExporter.build(
+            report(listOf(ChargerReport(1, "CH01", ChargerStatus.CLEAR, inspectedAt, findings()))),
+        )
+        assertEquals("7,J. Smith,CH01,CLEAR,2026-10-16T09:12:03Z,Misc,N/A,,", lines(csv).last())
+    }
+
+    @Test
     fun `failed component carries description and photo count`() {
         val fail = ComponentFinding(Component.PISTOL_1, CheckResult.FAIL, "Cracked, leaking", listOf("a.jpg", "b.jpg"))
         val csv = CsvExporter.build(
@@ -76,6 +86,33 @@ class CsvExporterTest {
         )
         val row = lines(csv).first { it.contains("Pistol 1") }
         assertEquals("7,J. Smith,CH12,ISSUES,2026-10-16T09:12:03Z,Pistol 1,FAIL,\"Cracked, leaking\",2", row)
+    }
+
+    @Test
+    fun `note component exports as NOTE with its comment and photo count`() {
+        val note = ComponentFinding(Component.SCREEN, CheckResult.NOTE, "Minor scuff", listOf("a.jpg"))
+        val csv = CsvExporter.build(
+            report(
+                listOf(
+                    ChargerReport(4, "CH04", ChargerStatus.NOTED, inspectedAt, findings(Component.SCREEN to note)),
+                ),
+            ),
+        )
+        val row = lines(csv).first { it.contains(",Screen,") }
+        assertEquals("7,J. Smith,CH04,NOTED,2026-10-16T09:12:03Z,Screen,NOTE,Minor scuff,1", row)
+    }
+
+    @Test
+    fun `photo-only note exports a blank description and the photo count`() {
+        val note = ComponentFinding(Component.MISC, CheckResult.NOTE, "", listOf("a.jpg", "b.jpg"))
+        val csv = CsvExporter.build(
+            report(
+                listOf(
+                    ChargerReport(4, "CH04", ChargerStatus.NOTED, inspectedAt, findings(Component.MISC to note)),
+                ),
+            ),
+        )
+        assertEquals("7,J. Smith,CH04,NOTED,2026-10-16T09:12:03Z,Misc,NOTE,,2", lines(csv).last())
     }
 
     @Test
@@ -134,25 +171,29 @@ class CsvExporterTest {
     }
 
     @Test
-    fun `summary counts chargers by status`() {
+    fun `summary counts chargers and components by status`() {
         val failing = ComponentFinding(Component.CABLE_1, CheckResult.FAIL, "frayed", emptyList())
+        val noting = ComponentFinding(Component.SCREEN, CheckResult.NOTE, "scuffed", emptyList())
         val r = report(
             listOf(
                 ChargerReport(1, "CH01", ChargerStatus.CLEAR, inspectedAt, findings()),
                 ChargerReport(2, "CH02", ChargerStatus.ISSUES, inspectedAt, findings(Component.CABLE_1 to failing)),
-                ChargerReport(3, "CH03", ChargerStatus.PARTIAL, null, findings()),
-                ChargerReport(4, "CH04", ChargerStatus.UNCHECKED, null, findings(default = null)),
+                ChargerReport(3, "CH03", ChargerStatus.NOTED, inspectedAt, findings(Component.SCREEN to noting)),
+                ChargerReport(4, "CH04", ChargerStatus.PARTIAL, null, findings()),
+                ChargerReport(5, "CH05", ChargerStatus.UNCHECKED, null, findings(default = null)),
             ),
         )
         val s = r.summary()
-        assertEquals(4, s.total)
-        assertEquals(2, s.inspected)
+        assertEquals(5, s.total)
+        assertEquals(3, s.inspected) // green + blue + red
         assertEquals(1, s.clear)
+        assertEquals(1, s.noted)
         assertEquals(1, s.issues)
         assertEquals(1, s.partial)
         assertEquals(1, s.unchecked)
         assertEquals(1, s.failedComponents)
-        assertEquals(50, s.percentInspected)
+        assertEquals(1, s.notedComponents)
+        assertEquals(60, s.percentInspected)
     }
 
     @Test

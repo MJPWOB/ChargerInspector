@@ -5,6 +5,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -122,7 +125,7 @@ fun DashboardScreen(
                             if (warning != null && warning.hasWarning) confirmGenerate = true else vm.generate()
                         },
                         enabled = current != null,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
                     ) {
                         Text("Generate Reports  •  ${current?.inspected ?: 0}/${current?.total ?: 0} Inspected")
                     }
@@ -136,7 +139,7 @@ fun DashboardScreen(
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 76.dp),
+                columns = GridCells.Adaptive(minSize = 84.dp),
                 contentPadding = PaddingValues(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -233,14 +236,16 @@ fun DashboardScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Legend() {
-    Row(
+    // Five entries no longer fit on one line on narrow phones, so let them wrap.
+    FlowRow(
         modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        for (status in listOf(ChargerStatus.UNCHECKED, ChargerStatus.PARTIAL, ChargerStatus.CLEAR, ChargerStatus.ISSUES)) {
+        for (status in ChargerStatus.entries) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier
@@ -271,8 +276,8 @@ private fun ChargerTileView(tile: ChargerTile, onClick: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(tile.label, color = foreground, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Text(StatusStyle.label(tile.status), color = foreground, fontSize = 10.sp)
+            Text(tile.label, color = foreground, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text(StatusStyle.label(tile.status), color = foreground, fontSize = 11.sp)
         }
     }
 }

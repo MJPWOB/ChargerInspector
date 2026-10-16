@@ -31,8 +31,12 @@ data class InspectUi(
     val inputs: Map<Component, ComponentInput> = emptyMap(),
     val photos: Map<Component, List<PhotoEntity>> = emptyMap(),
 ) {
-    val problems: List<ValidationProblem> get() = InspectionRules.validate(inputs)
+    private val photoCounts: Map<Component, Int> get() = photos.mapValues { it.value.size }
+    val problems: List<ValidationProblem> get() = InspectionRules.validate(inputs, photoCounts)
     val canSave: Boolean get() = problems.isEmpty()
+
+    /** True while "Mark all as pass" still has something to fill in. */
+    val hasUnanswered: Boolean get() = InspectionRules.hasUnanswered(inputs)
 }
 
 /**
@@ -91,6 +95,22 @@ class InspectViewModel(
         if (current.note == note) return
         inputs.update { it + (component to current.copy(note = note)) }
         markDirty(immediate = false)
+    }
+
+    /** Used by the optional Misc item: tapping the selected button again un-selects it. */
+    fun clearResult(component: Component) {
+        val current = inputs.value[component] ?: return
+        if (current.result == null) return
+        inputs.update { it + (component to current.copy(result = null)) }
+        markDirty(immediate = true)
+    }
+
+    /** Fills in every unanswered named component as Pass; existing answers are kept. */
+    fun markAllPass() {
+        val updated = InspectionRules.markAllPass(inputs.value)
+        if (updated == inputs.value) return
+        inputs.value = updated
+        markDirty(immediate = true)
     }
 
     private fun markDirty(immediate: Boolean) {

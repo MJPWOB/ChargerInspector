@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -146,8 +147,8 @@ fun StartScreen(
             Button(
                 onClick = { vm.start(onStarted) },
                 enabled = !vm.starting,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Start inspection") }
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+            ) { Text("Start inspection", style = MaterialTheme.typography.titleMedium) }
 
             TextButton(onClick = onHistory, modifier = Modifier.fillMaxWidth()) {
                 Text("Previous reports")

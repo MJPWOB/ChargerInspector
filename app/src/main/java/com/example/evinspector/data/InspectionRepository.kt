@@ -144,8 +144,9 @@ class InspectionRepository(
     }
 
     /**
-     * Save & Return. Returns false (and writes nothing) if the form is not valid. Notes and photos
-     * belonging to components that ended up as PASS are discarded.
+     * Save & Return. Returns false (and writes nothing) if the form is not valid. Comments and
+     * photos only survive on components that ended up as Fail or Note; anything on a Pass, or on a
+     * cleared Misc, is discarded.
      */
     suspend fun commit(
         sessionId: Long,
@@ -153,29 +154,37 @@ class InspectionRepository(
         inputs: Map<Component, ComponentInput>,
         now: Long = System.currentTimeMillis(),
     ): Boolean {
-        if (!InspectionRules.canSave(inputs)) return false
-
         val cleaned = inputs.mapValues { (_, input) ->
-            if (input.result == CheckResult.FAIL) input.copy(note = input.note.trim()) else input.copy(note = "")
+            if (InspectionRules.carriesDetail(input.result)) input.copy(note = input.note.trim()) else input.copy(note = "")
         }
-        val passed = cleaned.filterValues { it.result == CheckResult.PASS }.keys.map { it.name }.toSet()
+        val keepPhotosFor = cleaned
+            .filterValues { InspectionRules.carriesDetail(it.result) }
+            .keys
+            .map { it.name }
+            .toSet()
         val orphanFiles = mutableListOf<String>()
+        var saved = false
 
         writeLock.withLock {
             db.withTransaction {
+                val photos = dao.getPhotos(sessionId, chargerNo)
+                // Validate against the photos actually stored, since a Note may be photo-only.
+                if (!InspectionRules.canSave(cleaned, photoCounts(photos))) return@withTransaction
                 writeInputs(sessionId, chargerNo, cleaned)
-                dao.getPhotos(sessionId, chargerNo)
-                    .filter { it.component in passed }
-                    .forEach {
-                        dao.deletePhoto(it.id)
-                        orphanFiles += it.path
-                    }
+                photos.filter { it.component !in keepPhotosFor }.forEach {
+                    dao.deletePhoto(it.id)
+                    orphanFiles += it.path
+                }
                 dao.upsertRecord(ChargerRecordEntity(sessionId, chargerNo, now))
+                saved = true
             }
         }
         withContext(Dispatchers.IO) { orphanFiles.forEach { resolve(it).delete() } }
-        return true
+        return saved
     }
+
+    private fun photoCounts(photos: List<PhotoEntity>): Map<Component, Int> =
+        photos.mapNotNull { Component.fromName(it.component) }.groupingBy { it }.eachCount()
 
     private suspend fun writeInputs(sessionId: Long, chargerNo: Int, inputs: Map<Component, ComponentInput>) {
         val rows = inputs.mapNotNull { (component, input) ->
@@ -293,12 +302,12 @@ class InspectionRepository(
             val findings = Component.entries.map { component ->
                 val row = rows[component.name]
                 val result = row?.let { CheckResult.fromName(it.result) }
-                val failed = result == CheckResult.FAIL
+                val detailed = InspectionRules.carriesDetail(result)
                 ComponentFinding(
                     component = component,
                     result = result,
-                    note = if (failed) row?.note.orEmpty() else "",
-                    photoPaths = if (failed) {
+                    note = if (detailed) row?.note.orEmpty() else "",
+                    photoPaths = if (detailed) {
                         photos[n to component.name].orEmpty().map { resolve(it.path).absolutePath }
                     } else {
                         emptyList()

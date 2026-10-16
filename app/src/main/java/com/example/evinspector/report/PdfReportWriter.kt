@@ -10,7 +10,9 @@ import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import android.text.StaticLayout
 import android.text.TextPaint
+import com.example.evinspector.domain.ChargerReport
 import com.example.evinspector.domain.ChargerStatus
+import com.example.evinspector.domain.ComponentFinding
 import com.example.evinspector.domain.SessionReport
 import com.example.evinspector.domain.TimeFormats
 import com.example.evinspector.domain.summary
@@ -58,7 +60,8 @@ class PdfReportWriter {
             pager.newPage()
             drawSummary(pager, report)
             drawOverview(pager, report)
-            drawFailures(pager, report)
+            drawFindings(pager, report, "Failure details", "No failures were recorded.") { it.failedFindings }
+            drawFindings(pager, report, "Notes and comments", "No notes or comments were recorded.") { it.notedFindings }
             drawNotFullyInspected(pager, report)
             pager.close()
             FileOutputStream(target).use { doc.writeTo(it) }
@@ -82,10 +85,16 @@ class PdfReportWriter {
         )
         paragraph(
             pager,
-            "All clear: ${s.clear}    With issues: ${s.issues}    Partially checked: ${s.partial}    Not checked: ${s.unchecked}",
+            "All clear: ${s.clear}    Notes only: ${s.noted}    With issues: ${s.issues}    " +
+                "Partially checked: ${s.partial}    Not checked: ${s.unchecked}",
             body,
         )
-        paragraph(pager, "Failed components: ${s.failedComponents}", body, after = 6f)
+        paragraph(
+            pager,
+            "Failed components: ${s.failedComponents}    Components with notes: ${s.notedComponents}",
+            body,
+            after = 6f,
+        )
         val incomplete = s.partial + s.unchecked
         if (incomplete > 0) {
             paragraph(
@@ -107,6 +116,7 @@ class PdfReportWriter {
             ChargerStatus.UNCHECKED to "Not checked",
             ChargerStatus.PARTIAL to "Partial",
             ChargerStatus.CLEAR to "All clear",
+            ChargerStatus.NOTED to "Notes",
             ChargerStatus.ISSUES to "Issues",
         )
         for ((status, name) in legend) {
@@ -137,11 +147,18 @@ class PdfReportWriter {
         pager.y += 10f
     }
 
-    private fun drawFailures(pager: Pager, report: SessionReport) {
-        sectionHeading(pager, "Failure details")
-        val affected = report.chargers.filter { it.failedFindings.isNotEmpty() }
+    /** One report section listing, per charger, the findings chosen by [pick] with their photos. */
+    private fun drawFindings(
+        pager: Pager,
+        report: SessionReport,
+        heading: String,
+        emptyText: String,
+        pick: (ChargerReport) -> List<ComponentFinding>,
+    ) {
+        sectionHeading(pager, heading)
+        val affected = report.chargers.filter { pick(it).isNotEmpty() }
         if (affected.isEmpty()) {
-            paragraph(pager, "No failures were recorded.", body, after = 8f)
+            paragraph(pager, emptyText, body, after = 8f)
             return
         }
         for (charger in affected) {
@@ -150,8 +167,10 @@ class PdfReportWriter {
                 ?.let { "inspected ${TimeFormats.human(it, report.zone)}" }
                 ?: "not saved as complete"
             paragraph(pager, "${charger.label}  -  $whenText", subheading, after = 3f)
-            for (finding in charger.failedFindings) {
-                val description = finding.note.ifBlank { "(no description provided)" }
+            for (finding in pick(charger)) {
+                val description = finding.note.ifBlank {
+                    if (finding.photoPaths.isEmpty()) "(no description provided)" else "(see photos)"
+                }
                 paragraph(pager, "${finding.component.label}: $description", body, indent = DETAIL_INDENT, after = 4f)
                 drawPhotos(pager, finding.photoPaths)
             }
@@ -237,6 +256,7 @@ class PdfReportWriter {
         ChargerStatus.UNCHECKED -> Color.rgb(117, 117, 117)
         ChargerStatus.PARTIAL -> Color.rgb(249, 168, 37)
         ChargerStatus.CLEAR -> Color.rgb(46, 125, 50)
+        ChargerStatus.NOTED -> Color.rgb(21, 101, 192)
         ChargerStatus.ISSUES -> Color.rgb(198, 40, 40)
     }
 
