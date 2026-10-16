@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Generated PDF/CSV reports (shared via the share sheet). -->
+    <files-path name="reports" path="reports/" />
+    <!-- Photo files handed to the system camera app as capture targets. -->
+    <files-path name="photos" path="photos/" />
+</paths>
